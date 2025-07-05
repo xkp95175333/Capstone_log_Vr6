@@ -103,6 +103,7 @@ typedef enum cs_arch {
 	CS_ARCH_HPPA, 		///< HPPA architecture
 	CS_ARCH_LOONGARCH, 	///< LoongArch architecture
 	CS_ARCH_XTENSA, 	///< Xtensa architecture
+	CS_ARCH_ARC, 	    ///< ARC architecture
 	CS_ARCH_MAX,
 	CS_ARCH_ALL = 0xFFFF, // All architectures - for cs_support()
 } cs_arch;
@@ -110,12 +111,64 @@ typedef enum cs_arch {
 // Support value to verify diet mode of the engine.
 // If cs_support(CS_SUPPORT_DIET) return True, the engine was compiled
 // in diet mode.
+
+/*
+	หน้าที่:
+
+	CS_SUPPORT_DIET: ใช้ตรวจสอบว่า Capstone Engine ถูกคอมไพล์มาในโหมด "Diet" หรือไม่
+	(โหมด Diet = เวอร์ชันย่อส่วน ประหยัดพื้นที่ความจำ แต่ความสามารถบางอย่างอาจหายไป)
+
+	CS_SUPPORT_X86_REDUCE: ใช้ตรวจสอบว่าเปิดโหมด "X86 Reduce" หรือไม่
+	(โหมด X86 Reduce = จำกัดชุดคำสั่งเฉพาะที่จำเป็นสำหรับ x86 เพื่อลดขนาด)
+	การใช้งาน:
+	```
+	if (cs_support(CS_SUPPORT_DIET)) {
+		printf("กำลังใช้โหมด Diet!\n");
+	}
+	```	
+	ถ้าคืนค่า true = เปิดโหมดนั้นอยู่
+
+	ถ้าคืนค่า false = ไม่ได้เปิดโหมดนั้น
+
+	ทำไมถึงสำคัญ:
+	โหมด Diet/X86 Reduce เหมาะสำหรับอุปกรณ์จำกัดทรัพยากร (เช่น IoT) ที่ไม่ต้องการฟีเจอร์เต็มรูปแบบ
+
+*/
 #define CS_SUPPORT_DIET (CS_ARCH_ALL + 1)
 
 // Support value to verify X86 reduce mode of the engine.
 // If cs_support(CS_SUPPORT_X86_REDUCE) return True, the engine was compiled
 // in X86 reduce mode.
 #define CS_SUPPORT_X86_REDUCE (CS_ARCH_ALL + 2)
+
+/// The mode bits of the AArch64 ISA (not vendor specific).
+
+	/*
+	* 
+	หน้าที่:
+	```
+	CS_SUPPORT_DIET: ใช้ตรวจสอบว่า Capstone Engine ถูกคอมไพล์มาในโหมด "Diet" หรือไม่
+	(โหมด Diet = เวอร์ชันย่อส่วน ประหยัดพื้นที่ความจำ แต่ความสามารถบางอย่างอาจหายไป)
+
+	CS_SUPPORT_X86_REDUCE: ใช้ตรวจสอบว่าเปิดโหมด "X86 Reduce" หรือไม่
+	(โหมด X86 Reduce = จำกัดชุดคำสั่งเฉพาะที่จำเป็นสำหรับ x86 เพื่อลดขนาด)
+	```
+	การใช้งาน:
+
+	c
+	if (cs_support(CS_SUPPORT_DIET)) {
+		printf("กำลังใช้โหมด Diet!\n");
+	}
+	ถ้าคืนค่า true = เปิดโหมดนั้นอยู่
+
+	ถ้าคืนค่า false = ไม่ได้เปิดโหมดนั้น
+
+	ทำไมถึงสำคัญ:
+	โหมด Diet/X86 Reduce เหมาะสำหรับอุปกรณ์จำกัดทรัพยากร (เช่น IoT) ที่ไม่ต้องการฟีเจอร์เต็มรูปแบบ
+
+	*/
+#define CS_MODE_AARCH64_ISA_BITS 0x00fffff8
+#define CS_MODE_VENDOR_AARCH64_BIT0 30
 
 /// Mode type
 typedef enum cs_mode {
@@ -124,14 +177,27 @@ typedef enum cs_mode {
 	CS_MODE_16 = 1 << 1,	///< 16-bit mode (X86)
 	CS_MODE_32 = 1 << 2,	///< 32-bit mode (X86)
 	CS_MODE_64 = 1 << 3,	///< 64-bit mode (X86, PPC)
+	// ARM
 	CS_MODE_THUMB = 1 << 4,	///< ARM's Thumb mode, including Thumb-2
 	CS_MODE_MCLASS = 1 << 5,	///< ARM's Cortex-M series
 	CS_MODE_V8 = 1 << 6,	///< ARMv8 A32 encodings for ARM
+	// AArch64
+	CS_MODE_APPLE_PROPRIETARY = 1 << CS_MODE_VENDOR_AARCH64_BIT0, ///< Enable Apple proprietary AArch64 instructions like AMX, MUL53, and others.
+	// SPARC
 	CS_MODE_V9 = 1 << 4, ///< SparcV9 mode (Sparc)
+	// PPC
 	CS_MODE_QPX = 1 << 4, ///< Quad Processing eXtensions mode (PPC)
 	CS_MODE_SPE = 1 << 5, ///< Signal Processing Engine mode (PPC)
 	CS_MODE_BOOKE = 1 << 6, ///< Book-E mode (PPC)
 	CS_MODE_PS = 1 << 7, ///< Paired-singles mode (PPC)
+	CS_MODE_AIX_OS = 1 << 8, ///< PowerPC AIX-OS
+	CS_MODE_PWR7 = 1 << 9, ///< Power 7
+	CS_MODE_PWR8 = 1 << 10, ///< Power 8
+	CS_MODE_PWR9 = 1 << 11, ///< Power 9
+	CS_MODE_PWR10 = 1 << 12, ///< Power 10
+	CS_MODE_PPC_ISA_FUTURE = 1 << 13, ///< Power ISA Future
+	CS_MODE_MODERN_AIX_AS = 1 << 14, ///< PowerPC AIX-OS with modern assembly
+	CS_MODE_MSYNC = 1 << 15, ///< PowerPC Has only the msync instruction instead of sync. Implies BOOKE
 	CS_MODE_M68K_000 = 1 << 1, ///< M68K 68000 mode
 	CS_MODE_M68K_010 = 1 << 2, ///< M68K 68010 mode
 	CS_MODE_M68K_020 = 1 << 3, ///< M68K 68020 mode
@@ -202,6 +268,7 @@ typedef enum cs_mode {
 	CS_MODE_TRICORE_160 = 1 << 5, ///< Tricore 1.6
 	CS_MODE_TRICORE_161 = 1 << 6, ///< Tricore 1.6.1
 	CS_MODE_TRICORE_162 = 1 << 7, ///< Tricore 1.6.2
+	CS_MODE_TRICORE_180 = 1 << 8, ///< Tricore 1.8.0
 	CS_MODE_HPPA_11 = 1 << 1, ///< HPPA 1.1
 	CS_MODE_HPPA_20 = 1 << 2, ///< HPPA 2.0
 	CS_MODE_HPPA_20W = CS_MODE_HPPA_20 | (1 << 3), ///< HPPA 2.0 wide
@@ -222,7 +289,9 @@ typedef enum cs_mode {
 	CS_MODE_SYSTEMZ_Z15 = 1 << 13, ///< Enables features of the Z15 processor
 	CS_MODE_SYSTEMZ_Z16 = 1 << 14, ///< Enables features of the Z16 processor
 	CS_MODE_SYSTEMZ_GENERIC = 1 << 15, ///< Enables features of the generic processor
-	CS_MODE_XTENSA = 1 << 1, ///< Xtensa
+	CS_MODE_XTENSA_ESP32 = 1 << 1,	 ///< Xtensa ESP32
+	CS_MODE_XTENSA_ESP32S2 = 1 << 2, ///< Xtensa ESP32S2
+	CS_MODE_XTENSA_ESP8266 = 1 << 3, ///< Xtensa ESP328266
 } cs_mode;
 
 typedef void* (CAPSTONE_API *cs_malloc_t)(size_t size);
@@ -280,7 +349,7 @@ typedef enum cs_opt_value {
 	CS_OPT_SYNTAX_MOTOROLA = 1 << 6, ///< MOS65XX use $ as hex prefix
 	CS_OPT_SYNTAX_CS_REG_ALIAS = 1 << 7, ///< Prints common register alias which are not defined in LLVM (ARM: r9 = sb etc.)
 	CS_OPT_SYNTAX_PERCENT = 1 << 8, ///< Prints the % in front of PPC registers.
-	CS_OPT_SYNTAX_NO_DOLLAR = 1 << 9, ///< Does not print the $ in front of Mips registers.
+	CS_OPT_SYNTAX_NO_DOLLAR = 1 << 9, ///< Does not print the $ in front of Mips, LoongArch registers.
 	CS_OPT_DETAIL_REAL = 1 << 1, ///< If enabled, always sets the real instruction detail. Even if the instruction is an alias.
 } cs_opt_value;
 
@@ -348,6 +417,7 @@ typedef struct cs_opt_skipdata {
 	/// BPF:       8 bytes.
 	/// TriCore:   2 bytes.
 	/// LoongArch: 4 bytes.
+	/// ARC: 	   2 bytes.
 	cs_skipdata_cb_t callback; 	// default value is NULL
 
 	/// User-defined data to be passed to @callback function pointer.
@@ -381,6 +451,7 @@ typedef struct cs_opt_skipdata {
 #include "hppa.h"
 #include "loongarch.h"
 #include "xtensa.h"
+#include "arc.h"
 
 #define MAX_IMPL_W_REGS 47
 #define MAX_IMPL_R_REGS 20
@@ -438,10 +509,12 @@ typedef struct cs_detail {
 		cs_hppa hppa; ///< HPPA architecture
 		cs_loongarch loongarch; ///< LoongArch architecture
 		cs_xtensa xtensa; ///< Xtensa architecture
+		cs_arc arc; ///< ARC architecture
 	};
 } cs_detail;
 
 /// Detail information of disassembled instruction
+/// รายละเอียดคำแนะนำแบบแยกส่วน
 typedef struct cs_insn {
 	/// Instruction ID (basically a numeric ID for the instruction mnemonic)
 	/// Find the instruction id in the '[ARCH]_insn' enum in the header file
@@ -485,6 +558,13 @@ typedef struct cs_insn {
 	/// True: The operands are the ones of the alias instructions.
 	/// False: The detail operands are from the real instruction.
 	bool usesAliasDetails;
+
+	/// True: The bytes disassemble to a valid instruction, but it is illegal by ISA definitions.
+	/// For example the instruction uses a register which is not allowed or it appears in
+	/// an invalid context.
+	///
+	/// False: The instruction decoded correctly and is valid.
+	bool illegal;
 
 	/// Pointer to cs_detail.
 	/// NOTE: detail pointer is only valid when both requirements below are met:
@@ -589,8 +669,23 @@ CAPSTONE_EXPORT
 void CAPSTONE_API cs_arch_register_alpha(void);
 CAPSTONE_EXPORT
 void CAPSTONE_API cs_arch_register_loongarch(void);
+CAPSTONE_EXPORT
+void CAPSTONE_API cs_arch_register_arc(void);
 
 /**
+ API นี้สามารถใช้เพื่อขอสถาปัตยกรรมที่สนับสนุนโดยไลบรารีนี้
+หรือตรวจสอบว่าไลบรารีนี้ถูกคอมไพล์ด้วยตัวเลือก 'diet' หรือไม่ (หรือเรียกใช้ในโหมด 'diet')
+
+หากต้องการตรวจสอบว่าสถาปัตยกรรมเฉพาะได้รับการรองรับโดยไลบรารีนี้หรือไม่ ให้ตั้งค่า @query เป็นโหมดสถาปัตยกรรม (ค่า CS_ARCH_*)
+
+หากต้องการตรวจสอบว่าไลบรารีนี้รองรับสถาปัตยกรรมทั้งหมดหรือไม่ ให้ใช้ CS_ARCH_ALL
+
+หากต้องการตรวจสอบว่าไลบรารีนี้อยู่ในโหมด 'diet' หรือไม่ ให้ตั้งค่า @query เป็น CS_SUPPORT_DIET
+
+@return เป็นจริงหากไลบรารีนี้รองรับสถาปัตยกรรมที่ระบุ หรือในโหมด 'diet'
+
+ This API สามารถนำมาใช้เพื่อขอซุ้มได้
+
  This API can be used to either ask for archs supported by this library,
  or check to see if the library was compile with 'diet' option (or called
  in 'diet' mode).
@@ -607,6 +702,17 @@ CAPSTONE_EXPORT
 bool CAPSTONE_API cs_support(int query);
 
 /**
+* 
+ เริ่มต้น CS handle: ต้องดำเนินการนี้ก่อนใช้ CS ทุกครั้ง
+
+@arch: ประเภทสถาปัตยกรรม (CS_ARCH_*)
+@mode: โหมดฮาร์ดแวร์ ซึ่งรวม CS_MODE_* ไว้ด้วยกัน
+@handle: ตัวชี้ไปยังตัวจัดการ ซึ่งจะได้รับการอัพเดตเมื่อส่งคืน
+
+@return CS_ERR_OK เมื่อสำเร็จ หรือค่าอื่นเมื่อล้มเหลว (ดูค่า cs_err enum
+สำหรับข้อผิดพลาดโดยละเอียด)
+
+
  Initialize CS handle: this must be done before any usage of CS.
 
  @arch: architecture type (CS_ARCH_*)
@@ -677,6 +783,15 @@ CAPSTONE_EXPORT
 const char * CAPSTONE_API cs_strerror(cs_err code);
 
 /**
+	ถอดรหัสไบนารี โดยกำหนดบัฟเฟอร์โค้ด ขนาด ที่อยู่ และจำนวน
+	ของคำสั่งที่ต้องการถอดรหัส
+
+	API นี้จะจัดสรรหน่วยความจำแบบไดนามิกเพื่อบรรจุคำสั่งที่แยกส่วนออกมา
+	คำสั่งที่ได้จะถูกใส่ไว้ใน @*insn	   
+
+	หมายเหตุ 1: API นี้จะกำหนดหน่วยความจำที่จำเป็นเพื่อบรรจุคำสั่งที่แยกส่วนใน @insn โดยอัตโนมัติ
+
+
  Disassemble binary code, given the code buffer, size, address and number
  of instructions to be decoded.
  This API dynamically allocate memory to contain disassembled instruction.
