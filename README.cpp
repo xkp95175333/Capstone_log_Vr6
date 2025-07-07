@@ -212,3 +212,72 @@ void PrintWithColor() const {
             r.address,
             r.mnemonic.c_str(),
 
+----
+// core_symbol_finder.cpp
+// ฟังก์ชัน Core: Get RVA / Size / Address ของฟังก์ชันจาก PDB โดยตรงแบบ IDA Style
+
+#include <windows.h>
+#include <dbghelp.h>
+#include <string>
+#include <iostream>
+#include <vector>
+
+#pragma comment(lib, "dbghelp.lib")
+
+class SymbolHelper {
+public:
+    SymbolHelper() : hProcess(GetCurrentProcess()) {}
+
+    bool init(const std::string& pdbPath) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES);
+        return SymInitialize(hProcess, nullptr, TRUE)
+            && (SymLoadModuleExA(hProcess, nullptr, pdbPath.c_str(), nullptr, 0, 0, nullptr, 0) != 0);
+    }
+
+    bool getFunctionInfo(const std::string& funcName, uint64_t& rvaOut, uint32_t& sizeOut) {
+        SYMBOL_INFO_PACKAGE sip = { 0 };
+        sip.si.SizeOfStruct = sizeof(SYMBOL_INFO);
+        sip.si.MaxNameLen = MAX_SYM_NAME;
+
+        if (SymFromName(hProcess, funcName.c_str(), &sip.si)) {
+            rvaOut = sip.si.Address;
+            sizeOut = sip.si.Size;
+            return true;
+        }
+        return false;
+    }
+
+    void cleanup() {
+        SymCleanup(hProcess);
+    }
+
+private:
+    HANDLE hProcess;
+};
+
+int main() {
+    const std::string modulePath = "C:\\Windows\\System32\\win32k.sys";
+    const std::string symbolName = "NtUserSetWindowDisplayAffinity";
+
+    SymbolHelper sym;
+    if (!sym.init(modulePath)) {
+        std::cerr << "[!] Failed to init symbol handler for: " << modulePath << std::endl;
+        return 1;
+    }
+
+    uint64_t rva = 0;
+    uint32_t size = 0;
+    if (sym.getFunctionInfo(symbolName, rva, size)) {
+        printf("[+] Function: %s\n", symbolName.c_str());
+        printf("    RVA / Address: 0x%llX\n", rva);
+        printf("    Size         : %u bytes\n", size);
+    } else {
+        std::cerr << "[-] Failed to find symbol: " << symbolName << std::endl;
+    }
+
+    sym.cleanup();
+    return 0;
+}
+----
+    ฃ
+
