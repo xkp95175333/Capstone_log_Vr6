@@ -1,3 +1,183 @@
+
+โอเคเลยครับ 👍
+ผมจะทำ ตัวอย่างแยกฟังก์ชัน แต่ละอัน แล้ว printf ให้เห็นผลชัด ๆ
+โดยใช้ Capstone (cs_disasm, cs_regs_access, cs_op_index) เพื่อคุณจะลองเทสได้
+
+
+---
+
+1) หา [rip+...] แล้วดึง offset ออกมา
+
+#include <capstone/capstone.h>
+#include <string>
+#include <iostream>
+#include <cstdint>
+
+int32_t GetRipRelativeOffset(const cs_insn* insn) {
+    if (!insn || !insn->op_str) return 0;
+    std::string opStr = insn->op_str;
+    auto pos = opStr.find("[rip+");
+    if (pos == std::string::npos) return 0;
+
+    std::string offsetStr = opStr.substr(pos + 5);
+    auto end = offsetStr.find("]");
+    if (end != std::string::npos)
+        offsetStr = offsetStr.substr(0, end);
+
+    try {
+        return std::stoi(offsetStr, nullptr, 16);
+    } catch (...) {
+        return 0;
+    }
+}
+
+void ExampleRipOffset() {
+    csh handle;
+    cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
+
+    // ตัวอย่าง code มี rip-relative
+    uint8_t code[] = { 0x48, 0x8B, 0x05, 0xB8, 0x13, 0x00, 0x00 }; // mov rax, [rip+0x13B8]
+    cs_insn* insn;
+    size_t count = cs_disasm(handle, code, sizeof(code), 0x140000000, 1, &insn);
+
+    if (count > 0) {
+        int32_t rel = GetRipRelativeOffset(&insn[0]);
+        std::cout << "Instruction: " << insn[0].mnemonic << " " << insn[0].op_str << "\n";
+        std::cout << "Rip-relative offset = 0x" << std::hex << rel << "\n";
+        std::cout << "Absolute = 0x" << (insn[0].address + insn[0].size + rel) << "\n";
+        cs_free(insn, count);
+    }
+
+    cs_close(&handle);
+}
+
+
+---
+
+2) หา Function Start โดยถอยหลัง (Prologue)
+
+#include <immintrin.h>
+#include <iostream>
+#include <cstdint>
+
+// mock readEx2 (อ่าน memory)
+template<typename T>
+T readEx2(uintptr_t addr) {
+    // ในของจริงคุณจะอ่าน process memory
+    // ที่นี่ขอ mock ว่ามี prologue
+    T data{};
+    uint8_t* p = reinterpret_cast<uint8_t*>(&data);
+    p[0] = 0x55; p[1] = 0x48; p[2] = 0x89; p[3] = 0xE5; // push rbp; mov rbp, rsp
+    return data;
+}
+
+uintptr_t FindFunctionStart(uintptr_t startAddr, size_t maxBack = 0x200) {
+    for (size_t offset = 0; offset < maxBack; offset += 16) {
+        uintptr_t addr = startAddr - offset;
+        __m128i block = readEx2<__m128i>(addr);
+        uint8_t* bytes = reinterpret_cast<uint8_t*>(&block);
+
+        if (bytes[0] == 0x55 && bytes[1] == 0x48 && bytes[2] == 0x89 && bytes[3] == 0xE5) {
+            return addr;
+        }
+    }
+    return 0;
+}
+
+void ExampleFindFunc() {
+    uintptr_t target = 0x140012345;
+    uintptr_t fnStart = FindFunctionStart(target);
+    if (fnStart)
+        std::cout << "Function start at: 0x" << std::hex << fnStart << "\n";
+    else
+        std::cout << "Function start not found\n";
+}
+
+
+---
+
+3) ใช้ Capstone API เพิ่มเติม
+
+(a) ใช้ cs_regs_access → หา register ที่อ่าน/เขียน
+
+void ExampleRegsAccess() {
+    csh handle;
+    cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
+    cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+
+    uint8_t code[] = { 0x48, 0x89, 0xD8 }; // mov rax, rbx
+    cs_insn* insn;
+    size_t count = cs_disasm(handle, code, sizeof(code), 0x1000, 1, &insn);
+
+    if (count > 0) {
+        cs_regs regs_read, regs_write;
+        uint8_t read_count, write_count;
+        if (cs_regs_access(handle, &insn[0], regs_read, &read_count, regs_write, &write_count) == CS_ERR_OK) {
+            std::cout << "Instruction: " << insn[0].mnemonic << " " << insn[0].op_str << "\n";
+            std::cout << "Read regs: " << (int)read_count << " Write regs: " << (int)write_count << "\n";
+        }
+        cs_free(insn, count);
+    }
+
+    cs_close(&handle);
+}
+
+(b) ใช้ cs_op_index → หา operand index ของ type ที่ต้องการ
+
+void ExampleOpIndex() {
+    csh handle;
+    cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
+    cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+
+    uint8_t code[] = { 0x48, 0x89, 0xD8 }; // mov rax, rbx
+    cs_insn* insn;
+    size_t count = cs_disasm(handle, code, sizeof(code), 0x2000, 1, &insn);
+
+    if (count > 0) {
+        int idx = cs_op_index(handle, &insn[0], X86_OP_REG, 0);
+        std::cout << "Instruction: " << insn[0].mnemonic << " " << insn[0].op_str << "\n";
+        std::cout << "Index of first register operand: " << idx << "\n";
+        cs_free(insn, count);
+    }
+
+    cs_close(&handle);
+}
+
+
+---
+
+วิธีรันรวม
+
+int main() {
+    ExampleRipOffset();
+    ExampleFindFunc();
+    ExampleRegsAccess();
+    ExampleOpIndex();
+    return 0;
+}
+
+
+---
+
+✅ แบบนี้คุณจะได้ผลลัพธ์ออกมาเป็น printf/cout ชัดเจน ว่า
+
+offset [rip+...] คือเท่าไหร่
+
+function start เจอตรงไหน
+
+instruction ใช้ register อะไร
+
+operand index อยู่ตำแหน่งไหน
+
+
+
+---
+
+คุณอยากให้ผมเขียนเป็น ไฟล์เดียว AsmTest.cpp รวม 4 example นี้ แล้วแยกเป็น main() เลือกทดสอบทีละอันไหมครับ?
+
+
+
+
 __int64 __fastcall sub_140B72010(__int64 a1, __int64 a2)
 {
   int v2; // esi
