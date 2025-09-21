@@ -298,3 +298,142 @@ UnDecorateSymbolName (DbgHelp) — ฟังก์ชันสำหรับ un
 
 ต้องการให้ผมสร้าง .bat script ให้เลยหรือพอแบบคู่มือขั้นตอนนี้ก่อน?
 
+โอเค เข้าใจแล้ว 👍
+สิ่งที่คุณส่งมาคือ ผลการสแกนฟังก์ชัน (function prologues) โดยจับ signature (byte pattern setup) ที่เจอใน .text section ของ win32k.sys หรือ system module อื่น ๆ → แล้วแมปออกมาเป็นตาราง [index] address | size | offset | function name
+
+ผมจะอธิบายโครงสร้าง + ยกตัวอย่าง "setup function pattern" แบบเข้าใจง่าย:
+
+
+---
+
+1. แต่ละบรรทัดคืออะไร?
+
+เช่น:
+
+[-0x48,0x89,0x4C,0x24,0x08,0x53,0x56,-]> [519] 0xFFFFF80251DE65F0|Size:0x14 [Off:Rva:0xE65F0|0xFFFFF8024DF965F0] (): InitProcessSystemDpi
+
+[-0x48,0x89,0x4C,0x24,0x08,0x53,0x56,-]
+→ prologue bytes pattern (byte array) ที่ใช้หา entry point ของฟังก์ชัน
+
+[519] → index จากการสแกน
+
+0xFFFFF80251DE65F0 → VA (Virtual Address) ของฟังก์ชัน
+
+Size:0x14 → ความยาวของฟังก์ชัน
+
+[Off:Rva:0xE65F0|0xFFFFF8024DF965F0]
+→ Rva (relative virtual address) และ offset ที่แมป
+
+InitProcessSystemDpi → ชื่อที่คุณ resolve/demangle มาได้
+
+
+
+---
+
+2. Setup function patterns ที่เห็น
+
+จะเห็นว่า function setup ของ Windows kernel (win32k, ntoskrnl) มีหลายรูปแบบ prologue:
+
+แบบ push + sub rsp
+
+40 53 48 83 EC 20 ...
+48 83 EC 28 ...
+48 83 EC 48 ...
+
+→ ฟังก์ชันทั่วไป ใช้ stack frame สำหรับ local vars
+
+แบบ mov + push + push
+
+48 89 4C 24 08 53 56 ...
+
+→ เก็บ register ไว้ใน stack ก่อน
+
+แบบ mov rbp,rsp + prologue
+
+48 8B C4 48 89 58 10 ...
+
+แบบ return ทันที (stub/init ฟังก์ชัน)
+
+33 C0 C3 CC CC ...
+
+→ ฟังก์ชัน dummy หรือ init สั้น ๆ
+
+
+
+---
+
+3. ตัวอย่างการ setup pattern หาฟังก์ชัน
+
+ถ้าคุณต้องการ “setup” function signature list สำหรับ debug/disasm → สามารถทำเป็นตารางเช่นนี้:
+
+struct FuncPattern {
+    const char* name;
+    std::vector<int> pattern; // ใช้ int เพื่อรองรับ -1 (wildcard)
+};
+
+// ตัวอย่าง patterns
+std::vector<FuncPattern> patterns = {
+    { "InitProcessSystemDpi", {0x48,0x89,0x4C,0x24,0x08,0x53,0x56,-1} },
+    { "InitRotationManager",  {0x40,0x53,0x48,0x83,0xEC,0x20,0x48,-1} },
+    { "InitSMSLookaside",     {0x40,0x53,0x48,0x83,0xEC,0x20,0xBA,-1} },
+    { "InitTimerCoalescing",  {0x48,0x89,0x5C,0x24,0x08,0x48,0x89,-1} },
+    { "InitializeGdiSiloGlobals", {0x40,0x53,0x48,0x83,0xEC,0x20,0x4C,-1} },
+    { "InitializeHidRequestList", {0x48,0x83,0xEC,0x28,0x4C,0x8B,0x15,-1} },
+    { "InitializeMediaChange", {0x48,0x8B,0xC4,0x48,0x89,0x58,0x10,-1} },
+    { "InitializeNavigationWindowRegistry", {0x33,0xC0,0xC3,0xCC,0xCC,-1} },
+    { "InitializePointerDevicesPresenceState",{0x48,0x83,0xEC,0x28,0x85,0xC9,0x74,-1} },
+    { "InitializePointerPrediction",{0x48,0x83,0xEC,0x28,0x4C,0x8B,0x15,-1} },
+    { "InitializeTouchPadSysParams",{0x40,0x53,0x48,0x83,0xEC,0x50,0x4C,-1} },
+    { "InitializeWin32kFullTelemetryAsserts",{0x48,0x83,0xEC,0x48,0x0F,0x57,0xC0,-1} },
+};
+
+วิธีใช้:
+
+อ่าน memory .text ของโมดูล
+
+ไล่สแกนหา pattern (support wildcard -1)
+
+ถ้า match → log address, size, assign function name
+
+
+
+---
+
+4. ทำไมต้องมี setup pattern?
+
+ช่วยในการ identify function entry แบบ static / runtime (แทนการ reliance กับ symbol ที่อาจถูก strip)
+
+สำหรับคุณ → เอามาทำ database → map address → function name (เหมือน cheat engine + reclass)
+
+ใช้กับ Capstone: เมื่อ disasm code แล้ว ถ้า address match pattern → คุณแปะชื่อ function ได้ทันที
+
+
+
+---
+
+👉 คำถาม: คุณอยากให้ผมเขียนโค้ด scanner แบบเต็ม (รับ BYTE* memory, size แล้วเช็คทุก pattern, return list ของฟังก์ชันที่พบ) หรือคุณแค่อยากได้ ตาราง setup pattern list สำหรับแต่ละฟังก์ชันเหมือนตัวอย่างข้างบน?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+  
