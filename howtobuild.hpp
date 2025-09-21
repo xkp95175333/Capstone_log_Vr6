@@ -1,0 +1,300 @@
+
+ดี — ให้ครบเป็นขั้นตอนทีละบรรทัด (Windows + VS2022 Developer Command Prompt) สำหรับสร้าง .lib ของ Capstone แล้วก็การสร้าง/ใช้ llvm-capstone (llvm-tblgen) เพื่อซิงค์ตาราง (auto-sync) — ครบทั้ง x86 (Win32) และ x64 (Debug/Release) — พร้อมวิธีเอาไปต่อในโปรเจคของคุณ และแนวทางลด/ไม่แจกไฟล์ debug (PDB) เพื่อ “ซ่อนการดีบัก” เล็กน้อย
+
+ผมให้ทั้ง (A) prerequisites, (B) สร้าง llvm-tblgen (llvm-capstone) → รันสคริปต์สร้างตาราง, (C) build capstone เป็น .lib (x86/x64, Debug/Release) โดยใช้ Visual Studio 2022 Developer Command Prompt (หรือใช้ Git Bash เมื่อจำเป็นสำหรับสคริปต์ shell) และ (D) วิธีเชื่อมใช้ในโปรเจค + ตัวอย่างโค้ดสั้น ๆ สำหรับ disassemble + demangle ของชื่อฟังก์ชันบน Windows
+
+> หมายเหตุสำคัญ: คำสั่งส่วนใหญ่ใช้ CMake (Capstone มี CMakePresets) และ llvm-capstone README แนะนำการใช้ cmake + ninja เพื่อสร้าง llvm-tblgen (เราจะแสดงทั้งวิธี Ninja และวิธี Visual Studio generator). 
+
+
+
+
+---
+
+A — prerequisites (ติดตั้งก่อน)
+
+1. Visual Studio 2022 Pro — ติดตั้ง Desktop development with C++ workload (MSVC v143 toolset, C++ CMake tools, Windows SDKs). (ต้องมี "x86/x64 compilers" ด้วย). (ใช้ Visual Studio Installer). 
+
+
+2. Git for Windows (git CLI) — จำเป็นสำหรับ clone repo.
+
+
+3. Python 3.8+ (ระบบ virtualenv จะใช้ใน llvm-capstone) และ pip.
+
+
+4. CMake (แนะนำเวอร์ชันล่าสุดที่ VS/CMake รองรับ) — ถ้า VS มีแล้วก็พอ แต่แนะนำติดตั้งเวอร์ชันล่าสุดด้วย (สำหรับความเข้ากัน).
+
+
+5. Ninja — แนะนำสำหรับ build ของ llvm (แต่ไม่บังคับ ถ้าจะใช้ Visual Studio generator ก็ได้).
+
+
+6. (เลือกได้) Git Bash / WSL — บางสคริปต์ใน llvm-capstone หรือ suite/auto-sync เป็น shell script (.sh) — บน Windows ใช้ Git Bash หรือ WSL จะสะดวก.
+
+
+7. (ถ้จะ demangle แบบ MSVC) DbgHelp อยู่ใน Windows SDK — ใช้ UnDecorateSymbolName จาก DbgHelp.lib. 
+
+
+
+
+---
+
+B — เตรียมซอร์ส (clone ทั้งสอง repo)
+
+เปิด Developer Command Prompt for VS 2022 หรือ x64/x86 Native Tools ตามเป้าหมาย (เราจะแสดงตัวอย่างทั้งสอง)
+
+:: ตัวอย่างโฟลเดอร์หลัก
+cd C:\dev
+git clone https://github.com/capstone-engine/capstone.git
+git clone https://github.com/capstone-engine/llvm-capstone.git
+cd capstone
+git submodule update --init --recursive
+
+(ถ้าอยากได้ branch next ให้ git checkout next ในแต่ละ repo)
+
+ข้อมูล: Capstone ใช้ CMakePresets และมีตัวเลือกสำหรับ build (static/shared etc.). 
+
+
+---
+
+C — สร้าง llvm-tblgen (จาก llvm-capstone) — จะใช้เพื่อสร้างตารางสำหรับ Capstone
+
+llvm-capstone README แนะนำให้สร้าง llvm-tblgen (ต้องการ python, cmake, ninja) — ตัวอย่างด้านล่างทำงานได้บน Windows (ใช้ Git Bash หรือ Developer PowerShell + Ninja):
+
+วิธี (แนะนำ: Git Bash)
+
+cd C:/dev/llvm-capstone
+
+# (เลือก create venv)
+python -m venv .venv
+# Windows (Git Bash)
+source .venv/Scripts/activate
+
+pip install --upgrade pip
+pip install cmake ninja
+mkdir build && cd build
+
+# ใช้ Ninja (ง่ายและเร็ว)
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm
+cmake --build . --target llvm-tblgen --config Release
+
+ผลลัพธ์: จะได้ llvm-tblgen (เช่น build/bin/llvm-tblgen.exe) — เก็บ path นี้ไว้. 
+
+ตัวเลือกถ้าจะใช้ Visual Studio generator แทน Ninja
+
+(ถ้าอยากใช้ VS2022 command prompt — เปิด x64 Native Tools Command Prompt for VS 2022 แล้ว:)
+
+cd C:\dev\llvm-capstone
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install cmake
+mkdir build
+cmake -S llvm -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --target llvm-tblgen
+:: ผลลัพธ์: build\bin\Release\llvm-tblgen.exe
+
+ถ้าสคริปต์ใน repo เป็น .sh ให้รันใน Git Bash / WSL — จะสะดวกกว่ารันบน cmd ตรง ๆ
+
+
+---
+
+D — รันสคริปต์ auto-sync / สร้างตาราง Capstone (จาก llvm-capstone → capstone)
+
+ใน llvm-capstone มีสคริปต์สำหรับสร้างตาราง (เช่น gen_llvm_tables.sh / gen_cs_tables.sh หรือสคริปต์ใน suite/auto-sync) — README ของ Capstone/auto-sync อธิบายวิธีใช้สคริปต์เหล่านี้ (อ่าน README ใน capstone/suite/auto-sync). 
+
+ตัวอย่าง (Git Bash) — แนวคิดทั่วไป:
+
+# สมมติ llvm-tblgen อยู่ที่ ../llvm-capstone/build/bin/llvm-tblgen
+cd C:/dev/llvm-capstone
+
+# ตัวอย่างรันสคริปต์ (ชื่อสคริปต์อาจต่างกันใน repo; ดู README ใน repo เพื่อคำสั่งจริง)
+./gen_llvm_tables.sh --tblgen-path build/bin/llvm-tblgen --out ../capstone/suite/auto-sync/output
+
+หลังจากรันสำเร็จ คุณจะได้ไฟล์ .inc / .c / ตารางต่าง ๆ ที่ต้องคัดลอก/วางหรือ merge เข้าใน tree ของ Capstone (README บอกตำแหน่งและวิธี) — ถ้าทำเพื่อแก้/อัพเดต architecture tables ให้ตรวจสอบ capstone/arch/* หรือ capstone/suite/auto-sync ตาม README. 
+
+> ถ้าคุณไม่ต้องการ generate table ใหม่ (ใช้ไฟล์ที่มีอยู่ใน repo) สามารถข้ามขั้นตอนนี้ได้ — capstone repo ที่ clone มาแล้วมักมีตารางที่พร้อม build
+
+
+
+
+---
+
+E — Build Capstone (.lib) ด้วย VS2022 (ทีละสถาปัตยกรรมและ configuration)
+
+วิธีใช้ Developer Command Prompt for VS 2022 (หรือ x64/x86 Native Tools) + CMake Visual Studio generator เพื่อให้ได้ .lib ที่จะเอาไปใส่ในโปรเจคของคุณ
+
+> ตัวเลือก CMake ที่ควรรู้: CAPSTONE_BUILD_SHARED / CAPSTONE_BUILD_STATIC / CAPSTONE_BUILD_CSTOOL / CAPSTONE_BUILD_TESTS / CAPSTONE_BUILD_STATIC_MSVC_RUNTIME (ชื่อ option อาจมีหลายรูปแบบในบาง branch — ตรวจสอบ CMakeLists.txt ถ้าจำเป็น). 
+
+
+
+1) ตัวอย่าง x64 — Debug
+
+เปิด x64 Native Tools Command Prompt for VS 2022
+
+cd C:\dev\capstone
+mkdir build\vs_x64_Debug
+cd build\vs_x64_Debug
+
+cmake -G "Visual Studio 17 2022" -A x64 ^
+  -DCAPSTONE_BUILD_SHARED=OFF ^
+  -DCAPSTONE_BUILD_STATIC=ON ^
+  -DCAPSTONE_BUILD_CSTOOL=OFF ^
+  -DCAPSTONE_BUILD_TESTS=OFF ^
+  -DCMAKE_INSTALL_PREFIX=..\..\out\install\x64\Debug ^
+  ..
+
+cmake --build . --config Debug --target install
+
+ผลลัพธ์ที่คาด: C:\dev\capstone\out\install\x64\Debug\lib\capstone.lib (หรือ path ใกล้เคียง — ถ้าไม่เจอให้ค้นหา capstone.lib ในโฟลเดอร์ build/out).
+
+2) x64 — Release (ไม่มี debug)
+
+cmake --build . --config Release --target install
+
+3) x86 (Win32) — Debug / Release
+
+เปิด x86 Native Tools Command Prompt for VS 2022 (หรือ Developer Prompt แล้วเรียก vcvarsall.bat x86) แล้วทำเหมือนด้านบนแต่ใช้ -A Win32 และโฟลเดอร์ build แยกเช่น build\vs_x86_Debug:
+
+cmake -G "Visual Studio 17 2022" -A Win32 ^
+  -DCAPSTONE_BUILD_SHARED=OFF -DCAPSTONE_BUILD_STATIC=ON ^
+  -DCAPSTONE_BUILD_TESTS=OFF ^
+  -DCMAKE_INSTALL_PREFIX=..\..\out\install\x86\Debug ..
+cmake --build . --config Debug --target install
+
+
+---
+
+F — เกี่ยวกับ “ซ่อนการดีบัก” / ลดการเปิดเผย symbol
+
+บน Windows ถ้าต้องการ ไม่แจก PDB ให้สร้าง Release build และอย่า copy .pdb ไฟล์ ไปแจกด้วย — ไฟล์ PDB เก็บ debug symbol ที่ช่วยให้ดีบักได้ง่าย. (ไฟล์ .lib เองเป็น static archive; symbol สำหรับ debugging จะอยู่ใน .pdb หรือใน object files ถาถูกสร้างด้วย flags เฉพาะ).
+
+ถ้ต้องการให้ build ไม่สร้าง PDB เลย สามารถตั้ง CMake flags/compile flags ให้ไม่เปิด /Zi หรือ /Z7 (แต่ต้องระวัง หาก build type ใช้ default generator behavior อาจยังสร้าง PDB). ทางง่ายและปลอดภัย: สร้าง Release และลบ/ไม่แจกไฟล์ .pdb จากไดเรกทอรี install/distribute.
+
+อย่าใช้เทคนิค “ป้องกันการดีบัก” ขั้นสูงที่ลดทอนความปลอดภัยหรือผิดกฎหมาย — การไม่แจก PDB และใช้ Release optimization เป็นวิธีปกติและปลอดภัย
+
+
+(คำอธิบายอิงพฤติกรรมของ MSVC/CMake — ถ้าต้องการผมทำตัวอย่าง CMake flags แบบเจาะจงให้ได้)
+
+
+---
+
+G — เอา .lib + header ไปใช้ในโปรเจค Visual Studio (MSVC)
+
+1. ในโปรเจคของคุณ ให้ copy:
+
+capstone/include (หรือเฉพาะโฟลเดอร์ header) ไปไว้ใน third_party/capstone/include หรือชี้ path ตรง
+
+ไฟล์ capstone.lib ไปไว้ใน libs\x64 หรือ libs\x86 ตามสถาปัตยกรรม
+
+
+
+2. ใน Visual Studio → Project Properties:
+
+C/C++ → Additional Include Directories → ใส่ path ของ capstone/include
+
+Linker → Additional Library Directories → ใส่ path ของโฟลเดอร์ที่มี capstone.lib
+
+Linker → Additional Dependencies → ใส่ capstone.lib (และถ้าจะใช้ demangle ของ MSVC ให้เพิ่ม Dbghelp.lib)
+
+
+
+3. ตัวอย่างง่าย ๆ ในโค้ด C++:
+
+
+
+#include <capstone/capstone.h>
+#include <windows.h>
+#include <Dbghelp.h> // สำหรับ UnDecorateSymbolName (demangle)
+
+#pragma comment(lib, "Dbghelp.lib") // หรือเพิ่มใน Linker -> Additional Dependencies
+
+void demo_disasm(const uint8_t* code, size_t size, uint64_t base) {
+    csh handle;
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) return;
+    cs_insn *insn;
+    size_t count = cs_disasm(handle, code, size, base, 0, &insn);
+    for (size_t i = 0; i < count; i++) {
+        printf("0x%" PRIx64 ":\t%s\t%s\n", insn[i].address, insn[i].mnemonic, insn[i].op_str);
+    }
+    cs_free(insn, count);
+    cs_close(&handle);
+}
+
+// Demangle (MSVC) using UnDecorateSymbolName
+std::string demangle_msvc(const char* name) {
+    char out[1024] = {0};
+    if (UnDecorateSymbolName(name, out, sizeof(out), UNDNAME_COMPLETE)) {
+        return std::string(out);
+    }
+    return std::string(name);
+}
+
+(ข้อมูลว่า UnDecorateSymbolName อยู่ใน Dbghelp.lib / Dbghelp.dll). 
+
+
+---
+
+H — สคริปต์ตัวอย่าง (รวดเดียว: build llvm-tblgen → gen tables → build capstone)
+
+ถ้าต้องการทำเป็นสคริปต์แบบ “รันทีเดียว” (Git Bash):
+
+# ตัวอย่างแนวทาง (Git Bash)
+cd /c/dev
+git clone https://github.com/capstone-engine/llvm-capstone.git
+git clone https://github.com/capstone-engine/capstone.git
+
+# build llvm-tblgen
+cd llvm-capstone
+python -m venv .venv
+source .venv/Scripts/activate
+pip install cmake ninja
+mkdir build && cd build
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm
+cmake --build . --target llvm-tblgen
+
+# generate tables (ดู README ใน repo ว่าต้องรันสคริปต์ไหนและพาธ)
+cd ..
+./gen_llvm_tables.sh --tblgen-path build/bin/llvm-tblgen --out ../capstone/suite/auto-sync/output
+
+# build capstone (use VS generator from Developer Prompt or call CMake with msbuild)
+# จากนี้แปลงเป็นใช้ Visual Studio Command Prompt เพื่อ build capstone (ตามขั้นตอนก่อนหน้า)
+
+> หมายเหตุ: script ข้างต้นเป็นแนวทาง — ชื่อสคริปต์ใน repo อาจเปลี่ยนได้ — อ่าน README ในแต่ละ repo เพื่อ param ที่ต้องใช้จริง. 
+
+
+
+
+---
+
+I — Troubleshooting / tips สั้น ๆ
+
+ถ้าคุณเจอปัญหา cmake หาตัวเลือกไม่พบ: รัน cmake -LAH .. เพื่อดูตัวแปร/option ที่โปรเจคเปิดให้กำหนด.
+
+ถ้าต้องการ static MSVC runtime ให้ตั้ง -DCAPSTONE_BUILD_STATIC_MSVC_RUNTIME=ON (ขึ้นกับ CMakeLists). 
+
+ถ้าสคริปต์ .sh error บน cmd ให้ใช้ Git Bash หรือ WSL.
+
+llvm/llvm-tblgen build ใหญ่และอาจใช้เนื้อที่/เวลามาก — ถ้ไม่จำเป็นให้ใช้ตารางที่ repo มีอยู่แล้ว
+
+
+
+---
+
+J — แหล่งอ้างอิงสำคัญ (ของที่ผมอ้างอิงคำสั่งหลัก)
+
+Capstone repo & CMakePresets (แสดง presets/build options). 
+
+llvm-capstone README — คำสั่งตัวอย่างสำหรับสร้าง llvm-tblgen. 
+
+Capstone auto-sync README (คำแนะนำการซิงค์/สร้างตาราง). 
+
+Capstone official docs (Compile & install guidance). 
+
+UnDecorateSymbolName (DbgHelp) — ฟังก์ชันสำหรับ undecorate/demangle บน Windows (link: Dbghelp.lib). 
+
+
+
+---
+
+ถ้าต้องการผมจัดให้เป็น ชุด .bat (สำหรับ VS2022 x64 Debug / x86 Debug / Release) ที่คุณสามารถคัดลอกแล้วรันใน Developer Command Prompt ได้เลย — บอกได้เลยว่าต้องการแบบไหน (x86/x64, Debug/Release, ต้องการลบ .pdb อัตโนมัติไหม) — ผมจะสร้างให้ครบทั้ง 4 แบบพร้อมคำอธิบายไฟล์ผลลัพธ์ครับ.
+
+ต้องการให้ผมสร้าง .bat script ให้เลยหรือพอแบบคู่มือขั้นตอนนี้ก่อน?
+
