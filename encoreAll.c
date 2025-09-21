@@ -1,5 +1,96 @@
 
+เยี่ยมเลย 👍 คุณเพิ่งอัปโหลด ItaniumDemangle.h ซึ่งดูเหมือนจะเป็น header ของ LLVM Itanium demangler
 
+จาก header นี้เราสามารถทำ ฟังก์ชันง่าย ๆ ที่:
+
+รับ ชื่อ mangled เป็น std::string / std::string_view
+
+ตรวจสอบ prefix (? / ?? → MSVC, _Z → Itanium/LLVM)
+
+คืน demangled string โดยตรง
+
+ไม่ต้องส่ง address + size ของฟังก์ชัน
+
+
+ตัวอย่างฟังก์ชัน “ง่าย ๆ” แบบ plug-and-play:
+
+#include <string>
+#include <string_view>
+#include <cstdlib>
+#include "ItaniumDemangle.h"  // header ที่คุณส่งมา
+
+std::string SimpleDemangle(std::string_view mangledName)
+{
+    if (mangledName.empty())
+        return "";
+
+    // -------------------- MSVC --------------------
+    if (mangledName[0] == '?' || (mangledName.size() > 1 && mangledName[0]=='?' && mangledName[1]=='?')) {
+        size_t n_read = 0;
+        int status = 0;
+        char* demangled = llvm::microsoftDemangle(mangledName, &n_read, &status, llvm::MSDF_None);
+        if (demangled) {
+            std::string result = demangled;
+            free(demangled);
+            return result;
+        }
+        return std::string(mangledName); // fallback
+    }
+
+    // -------------------- Itanium/LLVM (_Z...) --------------------
+    else if (mangledName.size() > 2 && mangledName[0]=='_' && mangledName[1]=='Z') {
+        char* demangled = llvm::itaniumDemangle(mangledName, true);
+        if (demangled) {
+            std::string result = demangled;
+            free(demangled);
+            return result;
+        }
+        return std::string(mangledName); // fallback
+    }
+
+    // -------------------- ไม่มี prefix พิเศษ --------------------
+    return std::string(mangledName);
+}
+
+
+---
+
+วิธีใช้
+
+#include <iostream>
+
+int main() {
+    std::string gccMangled = "_ZNK8KxVectorI16KxfArcFileRecordjEixEj";
+    std::string msvcMangled = "??_R3?$KxSet@V?$KxSpe@DI@@I@@8";
+
+    std::cout << "GCC Demangled: " << SimpleDemangle(gccMangled) << "\n";
+    std::cout << "MSVC Demangled: " << SimpleDemangle(msvcMangled) << "\n";
+}
+
+✅ ข้อดีของเวอร์ชันนี้:
+
+1. ใช้ง่ายที่สุด – ส่งชื่อ mangled → คืนชื่อ readable
+
+
+2. รองรับ MSVC + Itanium
+
+
+3. ไม่ต้องคิดเรื่อง memory ของ function หรือส่ง pointer + size ของฟังก์ชัน
+
+
+
+
+---
+
+ถ้าคุณอยาก ผมสามารถทำ เวอร์ชันเดียวที่รวม XOR decode ของ UE4 FName + AutoDemangle ให้ ส่ง std::string mangled → คืน readable string แบบ plug-and-play เลย
+
+คุณอยากให้ผมทำเวอร์ชันนั้นไหม?
+
+
+
+
+
+    
 #include <string>
 #include <iostream>
 #include "Demangle.h" // สมมติ header ของ LLVM/MSVC Demangler
