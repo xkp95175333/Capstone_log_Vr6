@@ -1,5 +1,39 @@
 
 
+#include <string>
+#include <iostream>
+#include "Demangle.h" // สมมติ header ของ LLVM/MSVC Demangler
+
+std::string demangleSymbol(const std::string& mangledName)
+{
+    llvm::ms_demangle::Demangler demangler;
+    std::string_view nameView = mangledName;
+    
+    // parse ชื่อ mangled
+    auto node = demangler.parse(nameView);
+    
+    if (!node || demangler.Error) {
+        // fallback คืนชื่อเดิม
+        return mangledName;
+    }
+
+    // สมมติ node->output() คืน std::string readable
+    return node->output(); // หรือใช้ฟังก์ชันอื่นของ node ที่คืนชื่อ
+}
+
+int main() {
+    std::string mangled = "_ZNK8KxVectorI16KxfArcFileRecordjEixEj"; // ตัวอย่าง GCC mangled
+    std::string readable = demangleSymbol(mangled);
+    std::cout << "Demangled: " << readable << "\n";
+
+    std::string msvcMangled = "??_R3?$KxSet@V?$KxSpe@DI@@I@@8"; // ตัวอย่าง MSVC
+    std::string readableMSVC = demangleSymbol(msvcMangled);
+    std::cout << "Demangled MSVC: " << readableMSVC << "\n";
+}
+
+
+
+
 
 #include <string>
 #include <string_view>
