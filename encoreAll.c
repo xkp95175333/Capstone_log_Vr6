@@ -1,4 +1,45 @@
 
+
+
+#include <string>
+#include <string_view>
+#include <algorithm>
+#include "Demangle.h"  // LLVM demangle header
+
+std::string AutoDemangleEx(const char* mangledAddr, size_t size)
+{
+    if (!mangledAddr || size == 0)
+        return "";
+
+    std::string_view mangledName(mangledAddr, size);
+
+    // -------------------- MSVC --------------------
+    if (mangledName[0] == '?' || (mangledName.size() > 1 && mangledName[0]=='?' && mangledName[1]=='?')) {
+        size_t n_read = 0;
+        int status = 0;
+        char* demangled = llvm::microsoftDemangle(mangledName, &n_read, &status, llvm::MSDF_None);
+        if (demangled) {
+            std::string result = demangled;
+            free(demangled); // คืน memory ที่ llvm ใช้
+            return result;
+        }
+        return std::string(mangledName); // fallback
+    }
+
+    // -------------------- Itanium/LLVM (_Z...) --------------------
+    else if (mangledName.size() > 2 && mangledName[0]=='_' && mangledName[1]=='Z') {
+        char* demangled = llvm::itaniumDemangle(mangledName, true);
+        if (demangled) {
+            std::string result = demangled;
+            free(demangled); // คืน memory ที่ llvm ใช้
+            return result;
+        }
+        return std::string(mangledName); // fallback
+    }
+
+    // -------------------- ไม่มี prefix พิเศษ --------------------
+    return std::string(mangledName);
+}
 โอเคเลยครับ 👍
 ผมจะทำ ตัวอย่างแยกฟังก์ชัน แต่ละอัน แล้ว printf ให้เห็นผลชัด ๆ
 โดยใช้ Capstone (cs_disasm, cs_regs_access, cs_op_index) เพื่อคุณจะลองเทสได้
