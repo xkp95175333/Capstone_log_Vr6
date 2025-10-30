@@ -1,4 +1,4 @@
-
+```
 #include <capstone/capstone.h>
 #include <fstream>
 #include <vector>
@@ -12,6 +12,9 @@ std::vector<uint8_t> LoadFileBytes(const std::string& filename) {
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), {});
 }
 
+```
+---
+    
 // ---------- ฟังก์ชันหลัก ----------
 void ShowDisasmUI() {
     static char filename[256] = "dump.bin";
@@ -132,6 +135,14 @@ void DebugFunction(const std::string& funcName, BYTE address[8], BYTE ptrAddress
     }
 }
 
+
+
+---
+    
+```
+
+
+
 // การเรียกใช้ตัวอย่าง:
 void TestDebug() {
     BYTE addr1[8] = {0x10,0x20,0x30,0x40,0x00,0x00,0x00,0x00};
@@ -142,9 +153,11 @@ void TestDebug() {
     DebugFunction("Bar", addr2, ptr2);
 }
 
+```
+
 
 // Capstone + ASM Visual Helper Class with offset support #include <capstone/capstone.h> #include <cstdint> #include <vector> #include <string> #include <map> #include <iostream>
-
+---
 struct AsmResult { uint64_t address; std::string mnemonic; std::string op_str; size_t size; std::vector<uint8_t> bytes; bool isPointer; int32_t pointerOffset; };
 
 class AsmMemoryAnalyzer { public: std::vector<AsmResult> results;
@@ -187,6 +200,12 @@ bool Analyze(const std::vector<uint8_t>& memory, uint64_t baseAddress) {
     return true;
 }
 
+---
+
+ser
+
+---
+
 // Get raw byte or value at address (from vector)
 uint8_t GetByteAt(uint64_t targetAddress, uint64_t base, const std::vector<uint8_t>& mem) const {
     size_t offset = targetAddress - base;
@@ -212,7 +231,12 @@ void PrintWithColor() const {
             r.address,
             r.mnemonic.c_str(),
 
-----
+
+
+
+            
+
+```
 // core_symbol_finder.cpp
 // ฟังก์ชัน Core: Get RVA / Size / Address ของฟังก์ชันจาก PDB โดยตรงแบบ IDA Style
 
@@ -278,6 +302,6 @@ int main() {
     sym.cleanup();
     return 0;
 }
-----
-    ฃ
+
+    ```
 
